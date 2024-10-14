@@ -30,6 +30,13 @@ resource "kubernetes_namespace" "argocd" {
   }
 }
 
+# Helloworld Namespace
+resource "kubernetes_namespace" "helloworld" {
+  metadata {
+    name = "helloworld"
+  }
+}
+
 # ArgoCD Installation using Helm
 resource "helm_release" "argocd" {
   name       = "argocd"
@@ -41,4 +48,14 @@ resource "helm_release" "argocd" {
   values = [
     file("${path.module}/argocd-values.yaml")
   ]
+}
+
+# ArgoCD Hellow World API
+resource "kubernetes_manifest" "argocd_app_helloworld_api" {
+  manifest = yamldecode(file("${path.module}/argocd-manifests/argocd-app-helloworld-api.yaml"))
+}
+
+# ArgoCD Hellow World UI
+resource "kubernetes_manifest" "argocd_app_helloworld_ui" {
+  manifest = yamldecode(file("${path.module}/argocd-manifests/argocd-app-helloworld-ui.yaml"))
 }
