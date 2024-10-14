@@ -1,0 +1,5 @@
+# ARGOCD admin pwd: 7Kw8MofeW15nK7uz%
+
+server:
+  service:
+    type: LoadBalancer  # Expose the ArgoCD server as a LoadBalancer service
