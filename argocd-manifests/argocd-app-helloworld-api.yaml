@@ -9,6 +9,13 @@ spec:
     repoURL: https://github.com/ayee808/docker-k8s-hello-world
     targetRevision: HEAD
     path: api
+    directory:
+      exclude: '**package-lock.json'
+  ignoreDifferences:
+    - group: ""
+      kind: ""
+      jsonPointers:
+        - /package-lock.json
   destination:
     server: https://kubernetes.default.svc
     namespace: helloworld
