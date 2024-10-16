@@ -10,6 +10,7 @@ spec:
     targetRevision: HEAD
     path: ui/my-app
     directory:
+      include: '*.yaml'
       exclude: '{**package-lock.json,**package.json, **tsconfig.json}'
   destination:
     server: https://kubernetes.default.svc
