@@ -10,12 +10,7 @@ spec:
     targetRevision: HEAD
     path: api
     directory:
-      exclude: '**package-lock.json'
-  ignoreDifferences:
-    - group: ""
-      kind: ""
-      jsonPointers:
-        - /package-lock.json
+      exclude: '{**package-lock.json,**package.json}'
   destination:
     server: https://kubernetes.default.svc
     namespace: helloworld
