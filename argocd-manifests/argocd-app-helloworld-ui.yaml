@@ -9,6 +9,8 @@ spec:
     repoURL: https://github.com/ayee808/docker-k8s-hello-world
     targetRevision: HEAD
     path: ui/my-app
+    directory:
+      exclude: '{**package-lock.json,**package.json, **tsconfig.json}'
   destination:
     server: https://kubernetes.default.svc
     namespace: helloworld
