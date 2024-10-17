@@ -2,4 +2,4 @@
 
 server:
   service:
-    type: LoadBalancer  # Expose the ArgoCD server as a LoadBalancer service
+    type: LoadBalancer
