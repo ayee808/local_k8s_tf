@@ -1,5 +1,0 @@
-# ARGOCD admin pwd: 7Kw8MofeW15nK7uz%
-
-server:
-  service:
-    type: LoadBalancer

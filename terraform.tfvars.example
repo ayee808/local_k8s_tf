@@ -1,0 +1,86 @@
+# ============================================================================
+# Terraform Variables Configuration Example
+# ============================================================================
+#
+# USAGE:
+#   1. Copy this file: cp terraform.tfvars.example terraform.tfvars
+#   2. Edit terraform.tfvars with your actual values
+#   3. Run: terraform init && terraform plan
+#
+# SECURITY:
+#   - terraform.tfvars is gitignored and will NOT be committed
+#   - NEVER commit actual passwords or secrets to version control
+#
+# NOTE:
+#   - ArgoCD admin password is managed by Ansible (not Terraform)
+#   - See docs/implementation-argocd-gitlab-app.md for Ansible configuration
+#
+# REQUIRED vs OPTIONAL:
+#   - All variables in this file are [OPTIONAL] with defaults
+#   - Uncomment and modify only if you need to override defaults
+#
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Kubernetes Configuration
+# ----------------------------------------------------------------------------
+
+# [OPTIONAL] Path to your kubeconfig file
+# Default: "~/.kube/config"
+# Uncomment and modify if your kubeconfig is in a different location
+# kubeconfig_path = "~/.kube/config"
+
+# [OPTIONAL] Kubernetes context name to use
+# Default: "docker-desktop"
+# Common values: "docker-desktop", "minikube", "kind-kind", "k3d-local"
+# Check available contexts with: kubectl config get-contexts
+# kube_context = "docker-desktop"
+
+# ----------------------------------------------------------------------------
+# Namespace Configuration
+# ----------------------------------------------------------------------------
+
+# [OPTIONAL] Namespace for ArgoCD installation
+# Default: "argocd"
+# Must be a valid Kubernetes namespace name (lowercase alphanumeric and hyphens)
+# argocd_namespace = "argocd"
+
+# [OPTIONAL] Namespace for application deployments
+# Default: "helloworld"
+# This is where your ArgoCD-managed applications will be deployed
+# app_namespace = "helloworld"
+
+# ----------------------------------------------------------------------------
+# ArgoCD Configuration
+# ----------------------------------------------------------------------------
+
+# [OPTIONAL] ArgoCD Helm chart version
+# Default: "7.6.8"
+# Check available versions: helm search repo argo/argo-cd --versions
+# argocd_chart_version = "7.6.8"
+
+# [OPTIONAL] ArgoCD service type
+# Default: "LoadBalancer"
+# Options: "LoadBalancer" (docker-desktop/cloud), "NodePort" (minikube), "ClusterIP" (with port-forward)
+# LoadBalancer works automatically with Docker Desktop
+# argocd_service_type = "LoadBalancer"
+
+# [OPTIONAL] HTTP port for ArgoCD server LoadBalancer
+# Default: 80
+# Change this if you need a different port for local development
+# argocd_server_http_port = 8080
+
+# [OPTIONAL] HTTPS port for ArgoCD server LoadBalancer
+# Default: 443
+# Change this if you need a different port for local development
+# argocd_server_https_port = 8443
+
+# ----------------------------------------------------------------------------
+# ArgoCD Configuration (Managed by Ansible)
+# ----------------------------------------------------------------------------
+# The following are NOT configured in Terraform:
+#   - ArgoCD admin password (auto-generated, managed by Ansible)
+#   - ArgoCD applications (configured via Ansible playbooks)
+#   - Repository URLs (configured via Ansible)
+#
+# See: docs/implementation-argocd-gitlab-app.md for Ansible setup
