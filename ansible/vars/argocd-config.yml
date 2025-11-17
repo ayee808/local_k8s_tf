@@ -1,0 +1,39 @@
+---
+# ArgoCD Configuration Variables (non-sensitive)
+# Sensitive values (passwords) are stored in vars/vault.yml
+
+# ArgoCD Server Configuration
+argocd_server_url: "https://localhost:4243"
+argocd_admin_username: "admin"
+
+# Kubernetes Configuration
+kubernetes_context: "docker-desktop"
+argocd_namespace: "argocd"
+app_namespace: "belay-example-app"
+
+# ArgoCD Application Configuration
+gitlab_app_name: "belay-portage-gitlab-example-app"
+gitlab_repo_url: "https://gitlab.com/HolomuaTech/belay-portage-gitlab-example-app.git"
+gitlab_repo_path: "k8s"
+gitlab_repo_branch: "main"
+
+# Application Service Configuration
+app_service_port: 4244  # External LoadBalancer port (avoid 80 due to conflicts)
+
+# Sync Policy Configuration
+auto_sync_enabled: true
+auto_sync_prune: true
+auto_sync_self_heal: true
+auto_sync_allow_empty: false
+
+# Retry Configuration
+sync_retry_limit: 5
+sync_retry_backoff_duration: "5s"
+sync_retry_backoff_factor: 2
+sync_retry_backoff_max_duration: "3m"
+
+# Application Labels
+app_labels:
+  environment: "local"
+  managed-by: "ansible"
+  project: "belay-portage-example"

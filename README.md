@@ -130,11 +130,219 @@ terraform output
 
 After Terraform deploys the infrastructure, use Ansible to configure ArgoCD:
 
-1. **Set Admin Password**: Ansible will change the auto-generated password to a secure one
-2. **Configure Applications**: Deploy applications to ArgoCD (e.g., GitLab app)
-3. **Setup Repositories**: Configure Git repository access
+### Prerequisites
 
-**See**: `docs/implementation-argocd-gitlab-app.md` for Ansible configuration instructions.
+1. **Ansible** (v2.10+)
+   ```bash
+   # Verify installation
+   ansible --version
+   ```
+
+2. **Python Dependencies**
+   ```bash
+   # Install kubernetes Python library (required for k8s modules)
+   pip3 install kubernetes
+
+   # Install bcrypt (for password hashing)
+   pip3 install bcrypt
+   ```
+
+3. **Ansible Collections**
+   ```bash
+   # Install kubernetes.core collection
+   ansible-galaxy collection install kubernetes.core
+   ```
+
+4. **ArgoCD CLI** (for configuration tasks)
+   ```bash
+   # macOS
+   brew install argocd
+
+   # Verify installation
+   argocd version --client
+   ```
+
+### Initial Setup
+
+1. **Navigate to Ansible directory**
+   ```bash
+   cd ansible
+   ```
+
+2. **Create vault password file** (for ansible-vault encryption)
+   ```bash
+   # Option 1: Create password file (recommended for local dev)
+   echo "your-vault-password" > .vault_pass
+   chmod 600 .vault_pass
+
+   # Option 2: Use --ask-vault-pass flag when running playbooks
+   ```
+
+3. **Configure admin password**
+   ```bash
+   # Copy example vault file
+   cp vars/vault.yml.example vars/vault.yml
+
+   # Edit and set secure password
+   nano vars/vault.yml
+   # Change: argocd_admin_password: "SecureArgoCD2025!"
+
+   # Encrypt vault file
+   ansible-vault encrypt vars/vault.yml --vault-password-file .vault_pass
+
+   # Verify encryption
+   cat vars/vault.yml  # Should show encrypted content
+   ```
+
+4. **Review configuration variables** (optional customization)
+   ```bash
+   # Edit non-sensitive configuration
+   nano vars/argocd-config.yml
+
+   # Key variables:
+   # - argocd_server_url: https://localhost:4243
+   # - gitlab_repo_url: GitLab repository URL
+   # - app_service_port: 4244 (external port for application)
+   # - auto_sync_enabled: true (GitOps auto-sync)
+   ```
+
+### Execute Ansible Playbook
+
+Run the main playbook to configure ArgoCD:
+
+```bash
+# Full configuration (admin password + applications)
+ansible-playbook -i inventory/hosts.yml playbooks/argocd-setup.yml --vault-password-file .vault_pass
+
+# Or use interactive password prompt
+ansible-playbook -i inventory/hosts.yml playbooks/argocd-setup.yml --ask-vault-pass
+
+# Run specific roles only (using tags)
+# Admin password only:
+ansible-playbook -i inventory/hosts.yml playbooks/argocd-setup.yml --tags admin --vault-password-file .vault_pass
+
+# Applications only (if password already set):
+ansible-playbook -i inventory/hosts.yml playbooks/argocd-setup.yml --tags apps --vault-password-file .vault_pass
+
+# Check mode (dry run, no changes)
+ansible-playbook -i inventory/hosts.yml playbooks/argocd-setup.yml --check --vault-password-file .vault_pass
+```
+
+### What the Playbook Does
+
+**Pre-tasks** (verification):
+- Verifies ArgoCD namespace exists
+- Checks ArgoCD server pod is running
+- Validates application namespace exists
+
+**Role: argocd-admin** (password management):
+1. Retrieves auto-generated admin password from Kubernetes secret
+2. Logs into ArgoCD CLI with initial password
+3. Updates admin password to your secure password (from vault.yml)
+4. Verifies new password works
+
+**Role: argocd-apps** (application configuration):
+1. Renders ArgoCD Application manifest from Jinja2 template
+2. Validates manifest syntax with kubectl dry-run
+3. Creates or updates ArgoCD application: `belay-portage-gitlab-example-app`
+4. Triggers initial sync if application is OutOfSync
+5. Configures sync policies: auto-sync, prune, self-heal
+
+**Post-tasks** (validation):
+- Lists all configured ArgoCD applications
+- Verifies GitLab application exists
+- Displays application sync and health status
+
+### Verify Configuration
+
+After playbook execution:
+
+```bash
+# Check ArgoCD applications
+kubectl get applications -n argocd
+
+# Get detailed application status
+argocd app get belay-portage-gitlab-example-app
+
+# Check deployed pods
+kubectl get pods -n belay-example-app
+
+# Check application service
+kubectl get svc -n belay-example-app
+# Expected: LoadBalancer service on port 4244
+
+# Access application
+open http://localhost:4244
+```
+
+### Login to ArgoCD UI
+
+```bash
+# Access ArgoCD UI
+open https://localhost:4243
+
+# Login credentials:
+# - Username: admin
+# - Password: (your password from vars/vault.yml)
+```
+
+### Troubleshooting Ansible
+
+**Issue: kubernetes Python library not found**
+```bash
+# Install with pip3
+pip3 install kubernetes
+
+# Verify installation
+python3 -c "import kubernetes; print(kubernetes.__version__)"
+```
+
+**Issue: argocd CLI not found**
+```bash
+# Install ArgoCD CLI
+brew install argocd
+
+# Or download manually
+curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-darwin-amd64
+chmod +x /usr/local/bin/argocd
+```
+
+**Issue: Ansible vault decryption failed**
+```bash
+# Verify vault password is correct
+ansible-vault view vars/vault.yml --vault-password-file .vault_pass
+
+# Re-encrypt with new password
+ansible-vault rekey vars/vault.yml
+```
+
+**Issue: ArgoCD login context deadline exceeded**
+```bash
+# Check ArgoCD server is accessible
+curl -k https://localhost:4243/healthz
+
+# Verify ArgoCD version compatibility
+argocd version --client
+kubectl get pods -n argocd -o jsonpath='{.items[0].spec.containers[0].image}'
+
+# If versions mismatch, upgrade ArgoCD via Terraform
+# Update variables.tf: argocd_chart_version
+terraform apply
+```
+
+**Issue: Application not syncing**
+```bash
+# Check application status
+argocd app get belay-portage-gitlab-example-app
+
+# Check repository is accessible
+argocd repo list
+
+# Force sync
+argocd app sync belay-portage-gitlab-example-app
+```
+
+**See**: `docs/implementation-argocd-gitlab-app.md` for detailed implementation steps and troubleshooting.
 
 ## Deployed Resources
 
@@ -364,7 +572,8 @@ For issues or questions:
 
 ---
 
-**Last Updated**: 2025-11-16
+**Last Updated**: 2025-11-17
 **Terraform Version**: 1.11.2
-**ArgoCD Version**: 7.6.8
+**ArgoCD Version**: 7.9.1 (ArgoCD v2.14.11)
 **Kubernetes**: Docker Desktop v1.34.1
+**Ansible Version**: 2.18.3

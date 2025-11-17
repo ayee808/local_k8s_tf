@@ -38,7 +38,7 @@ variable "app_namespace" {
 variable "argocd_chart_version" {
   description = "Version of the ArgoCD Helm chart to install"
   type        = string
-  default     = "7.6.8"
+  default     = "7.9.1"  # ArgoCD v2.14.11 (matches CLI v2.14.8)
 }
 
 variable "argocd_service_type" {

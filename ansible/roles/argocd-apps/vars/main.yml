@@ -1,0 +1,23 @@
+---
+# ArgoCD Applications Role Variables
+# These are defaults that can be overridden by inventory or playbook vars
+
+# All variables are defined in vars/argocd-config.yml:
+# - gitlab_app_name: Application name in ArgoCD
+# - gitlab_repo_url: GitLab repository URL
+# - gitlab_repo_path: Path within repo to k8s manifests
+# - gitlab_repo_branch: Git branch to track
+# - app_namespace: Target Kubernetes namespace for deployment
+# - argocd_namespace: ArgoCD namespace
+# - auto_sync_enabled: Enable automatic sync
+# - auto_sync_prune: Enable automatic resource pruning
+# - auto_sync_self_heal: Enable automatic self-healing
+# - auto_sync_allow_empty: Allow empty sync
+# - sync_retry_limit: Number of sync retries
+# - sync_retry_backoff_duration: Initial backoff duration
+# - sync_retry_backoff_factor: Backoff multiplier
+# - sync_retry_backoff_max_duration: Maximum backoff duration
+# - app_labels: Application labels
+
+# Kubernetes Configuration (from inventory)
+# - kubernetes_context: defined in inventory/hosts.yml

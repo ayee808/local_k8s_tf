@@ -1,0 +1,16 @@
+---
+# ArgoCD Admin Role Variables
+# These are defaults that can be overridden by inventory or playbook vars
+
+# ArgoCD Server URL (from inventory or playbook vars)
+# argocd_server_url: defined in vars/argocd-config.yml
+
+# ArgoCD Admin Username (from inventory or playbook vars)
+# argocd_admin_username: defined in vars/argocd-config.yml
+
+# Kubernetes Configuration (from inventory)
+# kubernetes_context: defined in inventory/hosts.yml
+# argocd_namespace: defined in inventory/hosts.yml
+
+# Sensitive Variables (from vault)
+# argocd_admin_password: defined in vars/vault.yml (encrypted)

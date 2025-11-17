@@ -2,7 +2,7 @@
 
 **Project**: local_k8s_tf - Local Kubernetes ArgoCD Deployment
 **Last Updated**: 2025-11-17
-**Version**: Terraform 1.11.2, ArgoCD 7.6.8, Kubernetes v1.34.1 (Docker Desktop)
+**Version**: Terraform 1.11.2, ArgoCD 7.9.1 (v2.14.11), Kubernetes v1.34.1, Ansible 2.18.3
 
 ---
 
@@ -195,16 +195,30 @@ External Dependencies:
 │                                                                          │
 │  ┌────────────────┐      ┌──────────────────┐      ┌─────────────────┐ │
 │  │  Playbooks     │─────▶│  Roles           │─────▶│  Tasks          │ │
-│  │  - site.yml    │      │  - argocd-passwd │      │  - Set password │ │
+│  │  - argocd-     │      │  - argocd-admin  │      │  - Password mgmt│ │
+│  │    setup.yml   │      │    (14 tasks)    │      │  - CLI login    │ │
 │  │                │      │  - argocd-apps   │      │  - Create apps  │ │
-│  │                │      │  - argocd-repos  │      │  - Add repos    │ │
+│  │                │      │    (19 tasks)    │      │  - Sync trigger │ │
 │  └────────────────┘      └──────────────────┘      └─────────────────┘ │
 │                                                                          │
-│  ┌────────────────┐                                                     │
-│  │  Ansible Vault │                                                     │
-│  │  - admin pwd   │                                                     │
-│  │  - git tokens  │                                                     │
-│  └────────────────┘                                                     │
+│  ┌────────────────┐      ┌──────────────────┐                          │
+│  │  Inventory     │      │  Variables       │                          │
+│  │  - hosts.yml   │      │  - argocd-       │                          │
+│  │  (localhost)   │      │    config.yml    │                          │
+│  │                │      │  - vault.yml     │                          │
+│  └────────────────┘      │  (encrypted)     │                          │
+│                          └──────────────────┘                          │
+│                                                                          │
+│  ┌────────────────────────────────────────────────────────────────────┐ │
+│  │  Configuration Details                                             │ │
+│  │  - Python interpreter: /opt/homebrew/bin/python3                  │ │
+│  │  - Required libraries: kubernetes (v34.1.0), bcrypt               │ │
+│  │  - Collections: kubernetes.core (v5.1.0)                          │ │
+│  │  - Password: bcrypt hash in argocd-secret                         │ │
+│  │  - Applications: belay-portage-gitlab-example-app                 │ │
+│  │  - GitLab repo: HolomuaTech/belay-portage-gitlab-example-app.git │ │
+│  │  - Sync policies: auto-sync, prune, self-heal                    │ │
+│  └────────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────────┘
 
 Data Flow Direction:
@@ -816,6 +830,123 @@ Relationships:
 - Applied to ArgoCD Helm chart (1:1)
 
 Lifecycle: Version controlled (committed to repository)
+
+### Ansible Configuration Entities
+
+#### Inventory: hosts.yml
+Description: Ansible inventory defining connection and variables for localhost
+- ansible_connection: "local"
+- ansible_python_interpreter: "/opt/homebrew/bin/python3"
+- kubernetes_context: "docker-desktop"
+- argocd_namespace: "argocd"
+- app_namespace: "belay-example-app"
+- argocd_server: "localhost:4242"
+
+Lifecycle: Version controlled, edited per environment
+
+#### Variables: argocd-config.yml
+Description: Non-sensitive ArgoCD configuration variables
+- argocd_server_url: "https://localhost:4243"
+- gitlab_app_name: "belay-portage-gitlab-example-app"
+- gitlab_repo_url: GitLab repository URL
+- gitlab_repo_path: "k8s"
+- app_service_port: 4244 (configurable LoadBalancer port)
+- auto_sync_enabled: true
+- auto_sync_prune: true
+- auto_sync_self_heal: true
+
+Lifecycle: Version controlled, customizable per deployment
+
+#### Variables: vault.yml
+Description: Encrypted sensitive configuration (ansible-vault)
+- argocd_admin_password: Secure admin password (encrypted)
+
+Lifecycle: Encrypted with ansible-vault, NOT in version control (.gitignored)
+
+Relationships:
+- Loaded by playbooks/argocd-setup.yml (1:1)
+- Password used by roles/argocd-admin for authentication (1:1)
+
+Security: AES256 encrypted, password required for decryption
+
+#### Playbook: argocd-setup.yml
+Description: Main orchestration playbook for ArgoCD configuration
+- hosts: localhost (local connection)
+- vars_files: argocd-config.yml, vault.yml
+- pre_tasks: 8 verification tasks
+- roles: argocd-admin (14 tasks), argocd-apps (19 tasks)
+- post_tasks: 8 validation tasks
+
+Relationships:
+- Executes roles/argocd-admin (1:1)
+- Executes roles/argocd-apps (1:1)
+- Loads variables from config files (1:N)
+
+#### Role: argocd-admin
+Description: Manages ArgoCD admin password rotation
+Tasks (14):
+1. Retrieve auto-generated password from argocd-initial-admin-secret
+2. Extract password with base64 decoding
+3. Verify password format and length
+4. Check argocd CLI availability
+5. Assert CLI is installed
+6. Login to ArgoCD with initial password
+7. Display login status (masked)
+8. Update admin password from vault
+9. Display update status
+10. Verify new password by re-login
+11. Confirm new password active
+12. Get ArgoCD version
+13. Display version information
+14. Completion message
+
+Relationships:
+- Reads Secret/argocd-initial-admin-secret (1:1) [ephemeral]
+- Updates Secret/argocd-secret admin.password field (1:1)
+- Uses argocd CLI for authentication (N:1)
+
+Security: All password operations use no_log: true
+
+#### Role: argocd-apps
+Description: Manages ArgoCD Application lifecycle
+Tasks (19):
+1. Display application configuration
+2. Render manifest from Jinja2 template
+3. Display manifest location
+4. Validate manifest with kubectl dry-run
+5. Display validation result
+6. Check if application already exists
+7. Display existing status
+8. Create or update Application CRD
+9. Display creation result
+10. Wait for application creation (retry loop)
+11. Get sync status via argocd CLI
+12. Parse sync status JSON
+13. Display sync and health status
+14. Trigger initial sync if OutOfSync
+15. Display sync trigger result
+16. Clean up temporary manifest
+17. Display completion message
+
+Relationships:
+- Creates Application CRD in argocd namespace (1:1)
+- Uses template gitlab-app.yml.j2 (1:1)
+- Applies to kubernetes.core.k8s module (N:1)
+
+Lifecycle: Idempotent (handles create and update)
+
+#### Template: gitlab-app.yml.j2
+Description: Jinja2 template for ArgoCD Application CRD
+- apiVersion: argoproj.io/v1alpha1
+- kind: Application
+- spec.source: GitLab repository, path, branch
+- spec.destination: belay-example-app namespace
+- spec.syncPolicy: automated with prune, selfHeal
+- spec.syncPolicy.retry: 5 retries, exponential backoff
+
+Relationships:
+- Rendered by roles/argocd-apps (1:1)
+- Variables injected from argocd-config.yml (N:1)
 
 ---
 

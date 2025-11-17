@@ -1,0 +1,50 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ gitlab_app_name }}
+  namespace: {{ argocd_namespace }}
+  labels:
+{% for key, value in app_labels.items() %}
+    {{ key }}: {{ value }}
+{% endfor %}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ gitlab_repo_url }}
+    targetRevision: {{ gitlab_repo_branch }}
+    path: {{ gitlab_repo_path }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ app_namespace }}
+
+  syncPolicy:
+{% if auto_sync_enabled %}
+    automated:
+      prune: {{ auto_sync_prune | lower }}
+      selfHeal: {{ auto_sync_self_heal | lower }}
+      allowEmpty: {{ auto_sync_allow_empty | lower }}
+{% endif %}
+
+    syncOptions:
+      - CreateNamespace=false  # Namespace created by Terraform
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+
+    retry:
+      limit: {{ sync_retry_limit }}
+      backoff:
+        duration: {{ sync_retry_backoff_duration }}
+        factor: {{ sync_retry_backoff_factor }}
+        maxDuration: {{ sync_retry_backoff_max_duration }}
+
+  # Ignore differences in certain fields
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

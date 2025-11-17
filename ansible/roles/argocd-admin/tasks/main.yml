@@ -1,0 +1,84 @@
+---
+# ArgoCD Admin Configuration Role
+# This role manages ArgoCD admin password configuration
+
+- name: Retrieve auto-generated admin password from Kubernetes secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: argocd-initial-admin-secret
+    namespace: "{{ argocd_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: argocd_initial_secret
+  failed_when: argocd_initial_secret.resources | length == 0
+
+- name: Extract auto-generated password
+  set_fact:
+    argocd_initial_password: "{{ argocd_initial_secret.resources[0].data.password | b64decode }}"
+
+- name: Display initial password for verification (masked)
+  debug:
+    msg: "Auto-generated password retrieved (length: {{ argocd_initial_password | length }} characters)"
+
+- name: Check if argocd CLI is installed
+  command: which argocd
+  register: argocd_cli_check
+  failed_when: false
+  changed_when: false
+
+- name: Verify argocd CLI is available
+  assert:
+    that:
+      - argocd_cli_check.rc == 0
+    fail_msg: "ArgoCD CLI is not installed. Please install it first: https://argo-cd.readthedocs.io/en/stable/cli_installation/"
+    success_msg: "ArgoCD CLI is installed at {{ argocd_cli_check.stdout }}"
+
+- name: Login to ArgoCD with auto-generated password
+  command: >
+    argocd login {{ argocd_server_url | regex_replace('^https?://', '') }}
+    --username {{ argocd_admin_username }}
+    --password {{ argocd_initial_password }}
+    --insecure
+  register: argocd_login
+  changed_when: true
+  no_log: true
+
+- name: Display login status
+  debug:
+    msg: "Successfully logged in to ArgoCD as {{ argocd_admin_username }}"
+
+- name: Update ArgoCD admin password
+  command: >
+    argocd account update-password
+    --current-password {{ argocd_initial_password }}
+    --new-password {{ argocd_admin_password }}
+  register: password_update
+  changed_when: true
+  no_log: true
+
+- name: Display password update status
+  debug:
+    msg: "ArgoCD admin password updated successfully"
+
+- name: Verify new password works by logging in again
+  command: >
+    argocd login {{ argocd_server_url | regex_replace('^https?://', '') }}
+    --username {{ argocd_admin_username }}
+    --password {{ argocd_admin_password }}
+    --insecure
+  register: argocd_login_verify
+  changed_when: false
+  no_log: true
+
+- name: Confirm new password is active
+  debug:
+    msg: "New admin password verified and active"
+
+- name: Get ArgoCD server version
+  command: argocd version --short --client
+  register: argocd_version
+  changed_when: false
+
+- name: Display ArgoCD version
+  debug:
+    msg: "ArgoCD CLI version: {{ argocd_version.stdout }}"

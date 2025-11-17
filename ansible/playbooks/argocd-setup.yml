@@ -1,0 +1,151 @@
+---
+# ArgoCD Setup Playbook
+# This playbook configures ArgoCD with admin password and applications
+
+- name: Configure ArgoCD
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - ../vars/argocd-config.yml
+    - ../vars/vault.yml
+
+  pre_tasks:
+    - name: Display playbook start message
+      debug:
+        msg:
+          - "=========================================="
+          - "ArgoCD Configuration Playbook"
+          - "=========================================="
+          - "ArgoCD Server: {{ argocd_server_url }}"
+          - "Kubernetes Context: {{ kubernetes_context }}"
+          - "ArgoCD Namespace: {{ argocd_namespace }}"
+          - "Application Namespace: {{ app_namespace }}"
+          - "=========================================="
+
+    - name: Verify ArgoCD namespace exists
+      kubernetes.core.k8s_info:
+        kind: Namespace
+        name: "{{ argocd_namespace }}"
+        kubeconfig: ~/.kube/config
+        context: "{{ kubernetes_context }}"
+      register: argocd_ns
+      failed_when: argocd_ns.resources | length == 0
+
+    - name: Display ArgoCD namespace status
+      debug:
+        msg: "ArgoCD namespace '{{ argocd_namespace }}' exists"
+
+    - name: Check ArgoCD pods are running
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ argocd_namespace }}"
+        label_selectors:
+          - app.kubernetes.io/name=argocd-server
+        kubeconfig: ~/.kube/config
+        context: "{{ kubernetes_context }}"
+      register: argocd_pods
+      failed_when: argocd_pods.resources | length == 0
+
+    - name: Verify ArgoCD server pod is Ready
+      assert:
+        that:
+          - argocd_pods.resources | length > 0
+          - argocd_pods.resources[0].status.phase == "Running"
+        fail_msg: "ArgoCD server pod is not running"
+        success_msg: "ArgoCD server pod is running ({{ argocd_pods.resources | length }} pod(s) found)"
+
+    - name: Verify application namespace exists
+      kubernetes.core.k8s_info:
+        kind: Namespace
+        name: "{{ app_namespace }}"
+        kubeconfig: ~/.kube/config
+        context: "{{ kubernetes_context }}"
+      register: app_ns
+      failed_when: app_ns.resources | length == 0
+
+    - name: Display application namespace status
+      debug:
+        msg: "Application namespace '{{ app_namespace }}' exists"
+
+    - name: Display pre-tasks completion
+      debug:
+        msg: "Pre-flight checks passed - ArgoCD is ready for configuration"
+
+  roles:
+    - role: argocd-admin
+      tags: ['admin', 'password']
+
+    - role: argocd-apps
+      tags: ['apps', 'applications']
+
+  post_tasks:
+    - name: Display post-tasks start message
+      debug:
+        msg: "Running post-configuration verification..."
+
+    - name: Get ArgoCD application list
+      command: argocd app list --output json
+      register: app_list
+      changed_when: false
+      failed_when: false
+
+    - name: Parse application list
+      set_fact:
+        argocd_apps: "{{ app_list.stdout | from_json }}"
+      when: app_list.rc == 0
+
+    - name: Display configured applications
+      debug:
+        msg:
+          - "Configured ArgoCD Applications:"
+          - "{{ argocd_apps | map(attribute='metadata.name') | list }}"
+      when: app_list.rc == 0 and argocd_apps | length > 0
+
+    - name: Verify GitLab application exists
+      assert:
+        that:
+          - argocd_apps | selectattr('metadata.name', 'equalto', gitlab_app_name) | list | length > 0
+        fail_msg: "GitLab application '{{ gitlab_app_name }}' was not created"
+        success_msg: "GitLab application '{{ gitlab_app_name }}' is configured"
+      when: app_list.rc == 0
+
+    - name: Get application sync status
+      command: argocd app get {{ gitlab_app_name }} --output json
+      register: app_status
+      changed_when: false
+      failed_when: false
+
+    - name: Parse application status
+      set_fact:
+        app_details: "{{ app_status.stdout | from_json }}"
+      when: app_status.rc == 0
+
+    - name: Display application status
+      debug:
+        msg:
+          - "Application: {{ gitlab_app_name }}"
+          - "Sync Status: {{ app_details.status.sync.status }}"
+          - "Health Status: {{ app_details.status.health.status | default('Unknown') }}"
+          - "Repository: {{ app_details.spec.source.repoURL }}"
+          - "Path: {{ app_details.spec.source.path }}"
+          - "Branch: {{ app_details.spec.source.targetRevision }}"
+          - "Destination: {{ app_details.spec.destination.namespace }}"
+      when: app_status.rc == 0
+
+    - name: Display completion message
+      debug:
+        msg:
+          - "=========================================="
+          - "ArgoCD Configuration Complete!"
+          - "=========================================="
+          - "Admin password updated successfully"
+          - "Application '{{ gitlab_app_name }}' configured"
+          - ""
+          - "Next steps:"
+          - "1. Access ArgoCD UI: {{ argocd_server_url }}"
+          - "2. Login with username: {{ argocd_admin_username }}"
+          - "3. Use your new password from vault.yml"
+          - "4. Monitor application sync in the dashboard"
+          - "=========================================="

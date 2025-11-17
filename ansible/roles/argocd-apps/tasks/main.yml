@@ -1,0 +1,111 @@
+---
+# ArgoCD Applications Role
+# This role creates ArgoCD applications for GitOps deployment
+
+- name: Display ArgoCD application configuration
+  debug:
+    msg:
+      - "Configuring ArgoCD application: {{ gitlab_app_name }}"
+      - "Repository: {{ gitlab_repo_url }}"
+      - "Path: {{ gitlab_repo_path }}"
+      - "Branch: {{ gitlab_repo_branch }}"
+      - "Destination namespace: {{ app_namespace }}"
+
+- name: Render ArgoCD application manifest from template
+  template:
+    src: gitlab-app.yml.j2
+    dest: /tmp/argocd-app-{{ gitlab_app_name }}.yml
+    mode: '0644'
+  register: app_template
+
+- name: Display rendered manifest location
+  debug:
+    msg: "Application manifest rendered to {{ app_template.dest }}"
+
+- name: Validate rendered manifest syntax
+  command: kubectl apply --dry-run=client -f {{ app_template.dest }}
+  register: manifest_validation
+  changed_when: false
+
+- name: Display validation result
+  debug:
+    msg: "Manifest validation successful"
+
+- name: Check if ArgoCD application already exists
+  kubernetes.core.k8s_info:
+    kind: Application
+    api_version: argoproj.io/v1alpha1
+    name: "{{ gitlab_app_name }}"
+    namespace: "{{ argocd_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: existing_app
+
+- name: Display existing application status
+  debug:
+    msg: "Application {{ gitlab_app_name }} {{ 'already exists' if existing_app.resources | length > 0 else 'does not exist yet' }}"
+
+- name: Create or update ArgoCD application
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ app_template.dest }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: app_creation
+
+- name: Display application creation result
+  debug:
+    msg: "ArgoCD application {{ gitlab_app_name }} {{ 'updated' if existing_app.resources | length > 0 else 'created' }}"
+
+- name: Wait for application to be created in ArgoCD
+  kubernetes.core.k8s_info:
+    kind: Application
+    api_version: argoproj.io/v1alpha1
+    name: "{{ gitlab_app_name }}"
+    namespace: "{{ argocd_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: app_status
+  until: app_status.resources | length > 0
+  retries: 5
+  delay: 2
+
+- name: Get ArgoCD application sync status
+  command: argocd app get {{ gitlab_app_name }} --output json
+  register: app_sync_status
+  changed_when: false
+  failed_when: false
+
+- name: Parse application sync status
+  set_fact:
+    app_sync_info: "{{ app_sync_status.stdout | from_json }}"
+  when: app_sync_status.rc == 0
+
+- name: Display application sync information
+  debug:
+    msg:
+      - "Application: {{ gitlab_app_name }}"
+      - "Sync Status: {{ app_sync_info.status.sync.status | default('Unknown') }}"
+      - "Health Status: {{ app_sync_info.status.health.status | default('Unknown') }}"
+  when: app_sync_status.rc == 0
+
+- name: Trigger initial sync if application is OutOfSync
+  command: argocd app sync {{ gitlab_app_name }}
+  when:
+    - app_sync_status.rc == 0
+    - app_sync_info.status.sync.status | default('') == 'OutOfSync'
+  register: initial_sync
+
+- name: Display sync trigger result
+  debug:
+    msg: "Initial sync triggered for {{ gitlab_app_name }}"
+  when: initial_sync is changed
+
+- name: Clean up temporary manifest file
+  file:
+    path: "{{ app_template.dest }}"
+    state: absent
+
+- name: Display completion message
+  debug:
+    msg: "ArgoCD application {{ gitlab_app_name }} configured successfully"

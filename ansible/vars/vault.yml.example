@@ -1,0 +1,31 @@
+---
+# ArgoCD Secrets (to be encrypted with ansible-vault)
+#
+# SETUP INSTRUCTIONS:
+# 1. Copy this file to vault.yml:
+#    cp vault.yml.example vault.yml
+#
+# 2. Edit vault.yml and set your secure ArgoCD admin password:
+#    - Replace CHANGE-ME-SECURE-PASSWORD with a strong password
+#    - Minimum 12 characters recommended
+#    - Include uppercase, lowercase, numbers, and special characters
+#
+# 3. Encrypt vault.yml with ansible-vault:
+#    ansible-vault encrypt ansible/vars/vault.yml
+#    (You will be prompted to create a vault password)
+#
+# 4. Store your vault password securely (use password manager)
+#    - Never commit the vault password to git
+#    - Consider using .vault_pass file (gitignored) for automation
+#
+# 5. To edit encrypted vault.yml later:
+#    ansible-vault edit ansible/vars/vault.yml
+#
+# IMPORTANT: vault.yml is gitignored and should NEVER be committed unencrypted
+
+# ArgoCD Admin Password
+# This will replace the auto-generated password from Terraform
+argocd_admin_password: "CHANGE-ME-SECURE-PASSWORD"
+
+# Example of a strong password format (DO NOT USE THIS EXACT PASSWORD):
+# argocd_admin_password: "MyS3cur3P@ssw0rd!2024"

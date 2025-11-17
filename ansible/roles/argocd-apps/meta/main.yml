@@ -1,0 +1,27 @@
+---
+# ArgoCD Applications Role Metadata
+
+galaxy_info:
+  author: HolomuaTech
+  description: Configure ArgoCD applications for GitOps deployment
+  license: MIT
+  min_ansible_version: "2.15"
+
+  platforms:
+    - name: MacOSX
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+
+  galaxy_tags:
+    - argocd
+    - kubernetes
+    - gitops
+    - gitlab
+
+dependencies: []
+
+collections:
+  - kubernetes.core
