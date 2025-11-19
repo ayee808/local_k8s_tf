@@ -21,7 +21,8 @@ gitlab_repo_branch: "main"
 app_service_port: 4244  # External LoadBalancer port (avoid 80 due to conflicts)
 
 # Sync Policy Configuration
-auto_sync_enabled: true
+# Auto-sync disabled - deployment triggered via Belay API webhook after security validation
+auto_sync_enabled: false
 auto_sync_prune: true
 auto_sync_self_heal: true
 auto_sync_allow_empty: false

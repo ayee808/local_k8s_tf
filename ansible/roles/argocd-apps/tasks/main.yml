@@ -45,13 +45,20 @@
   debug:
     msg: "Application {{ gitlab_app_name }} {{ 'already exists' if existing_app.resources | length > 0 else 'does not exist yet' }}"
 
-- name: Create or update ArgoCD application
-  kubernetes.core.k8s:
-    state: present
-    src: "{{ app_template.dest }}"
-    kubeconfig: ~/.kube/config
-    context: "{{ kubernetes_context }}"
+- name: Create ArgoCD application (if not exists)
+  command: kubectl create -f {{ app_template.dest }} --context {{ kubernetes_context }}
   register: app_creation
+  failed_when: false
+  changed_when: app_creation.rc == 0
+  when: existing_app.resources | length == 0
+
+- name: Update ArgoCD application (if exists)
+  # Note: Using kubectl replace instead of kubernetes.core.k8s (which uses apply)
+  # because kubectl apply merges and won't remove the 'automated' field when disabled
+  command: kubectl replace -f {{ app_template.dest }} --context {{ kubernetes_context }}
+  register: app_update
+  changed_when: true
+  when: existing_app.resources | length > 0
 
 - name: Display application creation result
   debug:
