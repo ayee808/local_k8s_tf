@@ -8,6 +8,118 @@ After Belay validates security artifacts from Portage CD, it triggers ArgoCD to 
 GitLab CI → Portage CD (scans) → Belay API (validates) → ArgoCD API (sync) → Kubernetes
 ```
 
+---
+
+## Quick Start: Test ArgoCD Sync via API
+
+### Step 1: Get Your Token
+```bash
+# Navigate to project directory
+cd /Users/ayee/Documents/Projects/_Holomua/belay-hello-world-demo/local_k8s_tf/ansible
+
+# View vault and copy the token
+ansible-vault view vars/vault.yml | grep argocd_belay_api_token
+
+# Or export as environment variable
+export ARGOCD_TOKEN=$(ansible-vault view vars/vault.yml | grep argocd_belay_api_token | awk '{print $2}')
+```
+
+### Step 2: Test Sync with curl
+
+**Minimal Sync (just deploy latest from main branch)**:
+```bash
+curl -X POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{
+    "revision": "HEAD"
+  }'
+```
+
+**Full Sync (recommended - includes prune)**:
+```bash
+curl -X POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{
+    "revision": "HEAD",
+    "prune": true,
+    "dryRun": false,
+    "strategy": {
+      "apply": {
+        "force": false
+      }
+    }
+  }'
+```
+
+**Sync Specific Commit**:
+```bash
+curl -X POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{
+    "revision": "fdaabd096ca305c434ce40d3780b582e0c7f2299",
+    "prune": true
+  }'
+```
+
+### Step 3: Verify Sync Status
+
+```bash
+# Check sync status via API
+curl https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -k | jq '.status.sync'
+
+# Or use ArgoCD CLI
+argocd app get belay-portage-gitlab-example-app --server localhost:4243 --insecure
+```
+
+### Expected Response (Success)
+
+```json
+{
+  "metadata": {
+    "name": "belay-portage-gitlab-example-app",
+    "namespace": "argocd"
+  },
+  "spec": {
+    "source": {
+      "repoURL": "https://gitlab.com/HolomuaTech/belay-portage-gitlab-example-app.git",
+      "path": "k8s",
+      "targetRevision": "main"
+    }
+  },
+  "operation": {
+    "sync": {
+      "revision": "HEAD",
+      "prune": true
+    }
+  }
+}
+```
+
+After a few seconds, check the operation status:
+```bash
+curl https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -k | jq '.status.operationState'
+```
+
+Should show:
+```json
+{
+  "phase": "Succeeded",
+  "message": "successfully synced (all tasks run)"
+}
+```
+
+---
+
 ## ArgoCD Configuration
 
 ### Application Details
@@ -35,19 +147,30 @@ GitLab CI → Portage CD (scans) → Belay API (validates) → ArgoCD API (sync)
 
 **Token Storage**: Ansible Vault (`ansible/vars/vault.yml`)
 ```yaml
-argocd_belay_api_token: !vault |
-  $ANSIBLE_VAULT;1.1;AES256
-  <encrypted-token>
+argocd_belay_api_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
-### API Endpoint
+**Get the Token**:
+```bash
+# View the decrypted vault to get the token
+ansible-vault view ansible/vars/vault.yml | grep argocd_belay_api_token
+
+# Or set it as an environment variable
+export ARGOCD_TOKEN=$(ansible-vault view ansible/vars/vault.yml | grep argocd_belay_api_token | cut -d: -f2 | tr -d ' ')
+```
+
+### API Endpoints
 
 **Base URL**: `https://localhost:4243` (local development)
+- For production: Update to your actual ArgoCD server URL
+- Example: `https://argocd.yourdomain.com`
 
-**Sync Endpoint**:
+**Key Webhook URL for Belay Integration**:
 ```
-POST /api/v1/applications/belay-portage-gitlab-example-app/sync
+POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync
 ```
+
+This is the **exact endpoint** Belay API should call after security validation passes.
 
 ### Request Format
 
@@ -175,6 +298,147 @@ curl -X POST "${ARGOCD_URL}/api/v1/applications/${APP_NAME}/sync" \
 5. **ArgoCD syncs**: Deploys latest commit to Kubernetes
 6. **Verify deployment**: Check pods in `belay-example-app` namespace
 
+## Belay API Implementation Guide
+
+### Environment Variables for Belay
+
+Add these to your Belay API configuration:
+
+```bash
+# ArgoCD API Configuration
+ARGOCD_API_URL=https://localhost:4243
+ARGOCD_API_TOKEN=<get-from-ansible-vault>
+ARGOCD_APP_NAME=belay-portage-gitlab-example-app
+ARGOCD_VERIFY_SSL=false  # Set to true in production with valid cert
+```
+
+### Belay Webhook Handler Pseudocode
+
+```python
+# Example: Belay API webhook handler for Portage CD
+from requests import post
+import os
+
+def handle_portage_webhook(request):
+    """
+    Handler for Portage CD webhook after security scans complete
+    """
+    # 1. Parse Portage CD payload
+    scan_data = request.json
+
+    # 2. Validate security scan results
+    if not validate_security_scans(scan_data):
+        log.warning(f"Security validation failed: {scan_data['project']}")
+        return {"status": "rejected", "reason": "Security scans failed"}
+
+    # 3. Extract Git revision from Portage payload
+    git_revision = scan_data.get('git_sha', 'HEAD')
+
+    # 4. Trigger ArgoCD sync via API
+    try:
+        argocd_response = trigger_argocd_sync(
+            app_name=os.getenv('ARGOCD_APP_NAME'),
+            revision=git_revision
+        )
+
+        log.info(f"ArgoCD sync triggered successfully: {git_revision}")
+        return {
+            "status": "success",
+            "argocd_operation": argocd_response
+        }
+
+    except Exception as e:
+        log.error(f"Failed to trigger ArgoCD sync: {e}")
+        return {"status": "error", "message": str(e)}, 500
+
+
+def trigger_argocd_sync(app_name, revision='HEAD'):
+    """
+    Trigger ArgoCD application sync via REST API
+    """
+    url = f"{os.getenv('ARGOCD_API_URL')}/api/v1/applications/{app_name}/sync"
+
+    headers = {
+        'Authorization': f"Bearer {os.getenv('ARGOCD_API_TOKEN')}",
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        'revision': revision,
+        'prune': True,
+        'dryRun': False,
+        'strategy': {
+            'apply': {
+                'force': False
+            }
+        }
+    }
+
+    response = post(
+        url,
+        json=payload,
+        headers=headers,
+        verify=os.getenv('ARGOCD_VERIFY_SSL', 'false').lower() == 'true',
+        timeout=30
+    )
+
+    response.raise_for_status()
+    return response.json()
+
+
+def validate_security_scans(scan_data):
+    """
+    Validate Portage CD security scan results
+    Returns True if scans pass, False otherwise
+    """
+    # Example validation logic
+    required_scans = ['sast', 'dependency', 'container']
+
+    for scan_type in required_scans:
+        if scan_type not in scan_data.get('scans', {}):
+            return False
+
+        scan_result = scan_data['scans'][scan_type]
+
+        # Check for critical vulnerabilities
+        if scan_result.get('critical_count', 0) > 0:
+            return False
+
+        # Check for high vulnerabilities above threshold
+        if scan_result.get('high_count', 0) > 5:
+            return False
+
+    return True
+```
+
+### cURL Example for Belay Testing
+
+Test the complete flow manually:
+
+```bash
+# Set your token
+export ARGOCD_TOKEN=$(ansible-vault view vars/vault.yml | grep argocd_belay_api_token | awk '{print $2}')
+
+# Simulate what Belay will do: Trigger sync after validation
+curl -X POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{
+    "revision": "HEAD",
+    "prune": true,
+    "dryRun": false
+  }' | jq .
+
+# Check the sync completed
+sleep 5
+curl https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -k | jq '.status.operationState'
+```
+
+---
+
 ## Belay API Integration Checklist
 
 ### Configuration
@@ -290,3 +554,96 @@ curl -X POST "${ARGOCD_URL}/api/v1/applications/${APP_NAME}/sync" \
 - Implementation document: `docs/implementation-argocd-webhook-sync.md`
 - Project overview: `README.md`
 - Architecture docs: `docs/architecture.md` (if exists)
+
+---
+
+## Quick Reference Card
+
+### Key Information
+
+| Item | Value |
+|------|-------|
+| **ArgoCD URL** | `https://localhost:4243` |
+| **Application Name** | `belay-portage-gitlab-example-app` |
+| **Sync Endpoint** | `POST /api/v1/applications/belay-portage-gitlab-example-app/sync` |
+| **Service Account** | `belay-webhook` |
+| **Token Location** | `ansible/vars/vault.yml` (encrypted) |
+| **Git Repository** | `https://gitlab.com/HolomuaTech/belay-portage-gitlab-example-app.git` |
+| **Deployment Namespace** | `belay-example-app` |
+| **Sync Policy** | Manual (webhook-triggered) |
+
+### Essential Commands
+
+```bash
+# Get token from vault
+ansible-vault view ansible/vars/vault.yml | grep argocd_belay_api_token
+
+# Export token as env var
+export ARGOCD_TOKEN=$(ansible-vault view ansible/vars/vault.yml | grep argocd_belay_api_token | awk '{print $2}')
+
+# Trigger sync via API (what Belay will do)
+curl -X POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -k \
+  -d '{"revision":"HEAD","prune":true,"dryRun":false}'
+
+# Check sync status
+curl https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app \
+  -H "Authorization: Bearer ${ARGOCD_TOKEN}" \
+  -k | jq '.status.operationState'
+
+# Manual sync via CLI (fallback)
+argocd app sync belay-portage-gitlab-example-app --server localhost:4243 --insecure
+
+# Check application status
+argocd app get belay-portage-gitlab-example-app --server localhost:4243 --insecure
+
+# View deployed pods
+kubectl get pods -n belay-example-app
+```
+
+### For Belay Developers
+
+**Minimal Integration** (just trigger sync):
+```python
+import requests
+
+def trigger_deployment(git_sha='HEAD'):
+    url = "https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync"
+    headers = {
+        "Authorization": f"Bearer {ARGOCD_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {"revision": git_sha, "prune": True}
+    
+    response = requests.post(url, json=data, headers=headers, verify=False)
+    return response.json()
+```
+
+**What Belay Receives** (from Portage CD):
+```json
+{
+  "project": "belay-portage-gitlab-example-app",
+  "git_sha": "fdaabd096ca305c434ce40d3780b582e0c7f2299",
+  "git_branch": "main",
+  "scans": {
+    "sast": {"status": "passed", "critical_count": 0},
+    "dependency": {"status": "passed", "high_count": 2},
+    "container": {"status": "passed", "critical_count": 0}
+  }
+}
+```
+
+**What Belay Sends** (to ArgoCD):
+```bash
+POST https://localhost:4243/api/v1/applications/belay-portage-gitlab-example-app/sync
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: application/json
+
+{
+  "revision": "fdaabd096ca305c434ce40d3780b582e0c7f2299",
+  "prune": true,
+  "dryRun": false
+}
+```
